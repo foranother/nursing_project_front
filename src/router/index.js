@@ -29,7 +29,8 @@ const routes = [
   {
     path: '/scenarios',
     name: 'ScenarioList',
-    component: ScenarioList
+    component: ScenarioList,
+    meta: { requiresAuth: false }
   },
   {
     path: '/scenarios/:id',
@@ -92,4 +93,4 @@ router.beforeEach((to, from, next) => {
   }
 })
 
-export default router 
+export default router
