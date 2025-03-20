@@ -14,112 +14,258 @@ function handleLocalModification(content, userInput) {
   // 간단한 수정 로직 (실제로는 GPT API를 사용하는 것이 좋음)
   let modifiedContent = content;
   
-  // 사용자 입력에 따른 간단한 치환
-  // 나이 수정
-  if (userInput.includes('나이') || userInput.includes('연령')) {
-    const ageMatch = userInput.match(/(\d+)세/);
-    if (ageMatch && ageMatch[1]) {
-      modifiedContent = modifiedContent.replace(/나이:\s*(\d+)세/, `나이: ${ageMatch[1]}세`);
-    }
-  }
-  
-  // 성별 수정
-  if (userInput.includes('성별') || userInput.includes('남자') || userInput.includes('여자')) {
-    if (userInput.includes('남자') || userInput.includes('남성')) {
-      modifiedContent = modifiedContent.replace(/성별:\s*여(성|자)/g, '성별: 남성');
-    } else if (userInput.includes('여자') || userInput.includes('여성')) {
-      modifiedContent = modifiedContent.replace(/성별:\s*남(성|자)/g, '성별: 여성');
-    }
-  }
-  
-  // 직업 수정
-  if (userInput.includes('직업')) {
-    const jobMatch = userInput.match(/직업(?:을|를|은|는)?\s*([가-힣a-zA-Z\s]+)(?:으로|로|으로\s변경|로\s변경)?/);
-    if (jobMatch && jobMatch[1].trim()) {
-      const newJob = jobMatch[1].trim();
-      if (modifiedContent.includes('직업:')) {
-        modifiedContent = modifiedContent.replace(/직업:\s*[^\n]+/, `직업: ${newJob}`);
-      } else {
-        // 만약 직업 항목이 없다면 추가 (환자 정보 섹션에 삽입)
-        const patientInfoIndex = modifiedContent.indexOf('## 환자 정보');
-        if (patientInfoIndex !== -1) {
-          // 환자 정보 마지막 줄 찾기
-          const nextSectionIndex = modifiedContent.indexOf('##', patientInfoIndex + 1);
-          const insertPosition = nextSectionIndex !== -1 ? 
-            nextSectionIndex : 
-            patientInfoIndex + modifiedContent.substring(patientInfoIndex).indexOf('\n\n');
+  // 섹션 식별 및 수정에 사용할 유틸리티 함수
+  function findSectionAndModify(sectionName, newContent, defaultText) {
+    const sectionIndex = modifiedContent.indexOf(`## ${sectionName}`);
+    if (sectionIndex !== -1) {
+      const nextSectionIndex = modifiedContent.indexOf('##', sectionIndex + 1);
+      if (nextSectionIndex !== -1) {
+        const sectionContent = modifiedContent.substring(sectionIndex, nextSectionIndex);
+        const lines = sectionContent.split('\n');
+        
+        // 첫 번째 줄 이후에 내용 추가
+        if (lines.length > 1) {
+          lines[1] = `- ${newContent}`;
           
+          const updatedSection = lines.join('\n');
+          modifiedContent = modifiedContent.substring(0, sectionIndex) + 
+            updatedSection + 
+            modifiedContent.substring(nextSectionIndex);
+        } else {
+          // 섹션은 있지만 내용이 없는 경우
+          const updatedSection = `## ${sectionName}\n- ${newContent}\n`;
+          modifiedContent = modifiedContent.substring(0, sectionIndex) + 
+            updatedSection + 
+            modifiedContent.substring(nextSectionIndex);
+        }
+      } else {
+        // 마지막 섹션인 경우
+        const sectionContent = modifiedContent.substring(sectionIndex);
+        const lines = sectionContent.split('\n');
+        
+        if (lines.length > 1) {
+          lines[1] = `- ${newContent}`;
+          const updatedSection = lines.join('\n');
+          modifiedContent = modifiedContent.substring(0, sectionIndex) + updatedSection;
+        } else {
+          // 섹션은 있지만 내용이 없는 경우
+          const updatedSection = `## ${sectionName}\n- ${newContent}\n`;
+          modifiedContent = modifiedContent.substring(0, sectionIndex) + updatedSection;
+        }
+      }
+    } else if (defaultText) {
+      // 섹션이 없는 경우 추가
+      modifiedContent += `\n\n## ${sectionName}\n- ${newContent}`;
+    }
+    
+    return modifiedContent;
+  }
+  
+  // 환자 정보 항목 추가/수정 유틸리티 함수
+  function updatePatientInfo(fieldPattern, fieldName, newValue) {
+    const regex = new RegExp(`${fieldPattern}:\\s*[^\\n]+`);
+    
+    if (modifiedContent.match(regex)) {
+      // 필드가 이미 존재하면 교체
+      modifiedContent = modifiedContent.replace(regex, `${fieldName}: ${newValue}`);
+    } else {
+      // 필드가 없으면 환자 정보 섹션에 추가
+      const patientInfoIndex = modifiedContent.indexOf('## 환자 정보');
+      if (patientInfoIndex !== -1) {
+        // 환자 정보 섹션의 끝 찾기
+        const nextSectionIndex = modifiedContent.indexOf('##', patientInfoIndex + 1);
+        const insertPosition = nextSectionIndex !== -1 ? 
+          nextSectionIndex : 
+          patientInfoIndex + modifiedContent.substring(patientInfoIndex).indexOf('\n\n');
+        
+        if (insertPosition !== -1) {
           modifiedContent = modifiedContent.substring(0, insertPosition) + 
-            `\n- 직업: ${newJob}` + 
+            `\n- ${fieldName}: ${newValue}` + 
             modifiedContent.substring(insertPosition);
         }
       }
     }
+    
+    return modifiedContent;
   }
   
-  // 과거력 수정
+  // 1. 나이 수정 (기존 로직 개선)
+  if (userInput.includes('나이') || userInput.includes('연령')) {
+    const ageMatch = userInput.match(/(\d+)[세살]/) || userInput.match(/나이[를을]?\s*(\d+)[세살]?/);
+    if (ageMatch && ageMatch[1]) {
+      modifiedContent = updatePatientInfo('나이', '나이', `${ageMatch[1]}세`);
+    }
+  }
+  
+  // 2. 성별 수정 (기존 로직 개선)
+  if (userInput.includes('성별') || userInput.includes('남자') || userInput.includes('여자') || 
+      userInput.includes('남성') || userInput.includes('여성')) {
+    let newGender = null;
+    
+    if (userInput.includes('남자') || userInput.includes('남성')) {
+      newGender = '남성';
+    } else if (userInput.includes('여자') || userInput.includes('여성')) {
+      newGender = '여성';
+    }
+    
+    if (newGender) {
+      modifiedContent = updatePatientInfo('성별', '성별', newGender);
+    }
+  }
+  
+  // 3. 직업 수정 (기존 로직 개선)
+  if (userInput.includes('직업')) {
+    const jobMatch = userInput.match(/직업(?:을|를|은|는)?\s*([가-힣a-zA-Z\s]+)(?:으로|로|으로\s변경|로\s변경)?/) || 
+                    userInput.match(/직업[이]?\s*([가-힣a-zA-Z\s]+)/);
+    if (jobMatch && jobMatch[1].trim()) {
+      const newJob = jobMatch[1].trim();
+      modifiedContent = updatePatientInfo('직업', '직업', newJob);
+    }
+  }
+  
+  // 4. 과거력 수정 (기존 로직 개선)
   if (userInput.includes('과거력') || userInput.includes('병력')) {
-    const historyMatch = userInput.match(/(?:과거력|병력)(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/);
+    const historyMatch = userInput.match(/(?:과거력|병력)(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/) ||
+                         userInput.match(/(?:과거력|병력)[이]?\s*([가-힣a-zA-Z0-9,\s]+)/);
     if (historyMatch && historyMatch[1].trim()) {
       const newHistory = historyMatch[1].trim();
-      if (modifiedContent.includes('과거력:')) {
-        modifiedContent = modifiedContent.replace(/과거력:\s*[^\n]+/, `과거력: ${newHistory}`);
-      }
+      modifiedContent = updatePatientInfo('과거력', '과거력', newHistory);
     }
   }
   
-  // 가족력 수정
+  // 5. 가족력 수정 (기존 로직 개선)
   if (userInput.includes('가족력')) {
-    const familyMatch = userInput.match(/가족력(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/);
+    const familyMatch = userInput.match(/가족력(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/) ||
+                       userInput.match(/가족력[이]?\s*([가-힣a-zA-Z0-9,\s]+)/);
     if (familyMatch && familyMatch[1].trim()) {
       const newFamily = familyMatch[1].trim();
-      if (modifiedContent.includes('가족력:')) {
-        modifiedContent = modifiedContent.replace(/가족력:\s*[^\n]+/, `가족력: ${newFamily}`);
-      }
+      modifiedContent = updatePatientInfo('가족력', '가족력', newFamily);
     }
   }
   
-  // 알레르기 수정
+  // 6. 알레르기 수정 (기존 로직 개선)
   if (userInput.includes('알레르기')) {
-    const allergyMatch = userInput.match(/알레르기(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/);
+    const allergyMatch = userInput.match(/알레르기(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/) ||
+                        userInput.match(/알레르기[가]?\s*([가-힣a-zA-Z0-9,\s]+)/);
     if (allergyMatch && allergyMatch[1].trim()) {
       const newAllergy = allergyMatch[1].trim();
-      if (modifiedContent.includes('알레르기:')) {
-        modifiedContent = modifiedContent.replace(/알레르기:\s*[^\n]+/, `알레르기: ${newAllergy}`);
-      }
+      modifiedContent = updatePatientInfo('알레르기', '알레르기', newAllergy);
     }
   }
   
-  // 주 증상 수정
+  // 7. 투약 정보 수정 (새로운 필드)
+  if (userInput.includes('투약') || userInput.includes('약물') || userInput.includes('복용') || userInput.includes('주사')) {
+    const medicationMatch = userInput.match(/(?:투약|약물|복용|주사)(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/) ||
+                           userInput.match(/(?:투약|약물|복용|주사)[이]?\s*([가-힣a-zA-Z0-9,\s]+)/);
+    if (medicationMatch && medicationMatch[1].trim()) {
+      const newMedication = medicationMatch[1].trim();
+      modifiedContent = updatePatientInfo('투약 정보', '투약 정보', newMedication);
+    }
+  }
+  
+  // 8. 키와 체중 수정 (새로운 필드)
+  if (userInput.includes('키') || userInput.includes('신장')) {
+    const heightMatch = userInput.match(/(?:키|신장)(?:을|를|은|는)?\s*(\d+)(?:cm|센티미터|센치)?/) ||
+                       userInput.match(/(\d+)(?:cm|센티미터|센치)/);
+    if (heightMatch && heightMatch[1]) {
+      const newHeight = heightMatch[1];
+      modifiedContent = updatePatientInfo('키', '키', `${newHeight}cm`);
+    }
+  }
+  
+  if (userInput.includes('체중') || userInput.includes('몸무게')) {
+    const weightMatch = userInput.match(/(?:체중|몸무게)(?:을|를|은|는)?\s*(\d+)(?:kg|킬로그램|킬로)?/) ||
+                       userInput.match(/(\d+)(?:kg|킬로그램|킬로)/);
+    if (weightMatch && weightMatch[1]) {
+      const newWeight = weightMatch[1];
+      modifiedContent = updatePatientInfo('체중', '체중', `${newWeight}kg`);
+    }
+  }
+  
+  // 9. 혈액형 수정 (새로운 필드)
+  if (userInput.includes('혈액형')) {
+    const bloodTypeMatch = userInput.match(/혈액형(?:을|를|은|는)?\s*([ABO]|AB)형?\s*([+-])?/) ||
+                          userInput.match(/([ABO]|AB)형?\s*([+-])?/);
+    if (bloodTypeMatch) {
+      let newBloodType = bloodTypeMatch[1];
+      if (bloodTypeMatch[2]) {
+        newBloodType += bloodTypeMatch[2];
+      }
+      newBloodType += '형';
+      modifiedContent = updatePatientInfo('혈액형', '혈액형', newBloodType);
+    }
+  }
+  
+  // 10. 주 증상 수정 (기존 로직 개선)
   if (userInput.includes('증상') || userInput.includes('주 증상')) {
-    const symptomMatch = userInput.match(/(?:주\s)?증상(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/);
+    const symptomMatch = userInput.match(/(?:주\s)?증상(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/) ||
+                        userInput.match(/(?:주\s)?증상[이]?\s*([가-힣a-zA-Z0-9,\s]+)/);
     if (symptomMatch && symptomMatch[1].trim()) {
       const newSymptom = symptomMatch[1].trim();
+      modifiedContent = findSectionAndModify('주 증상', newSymptom, true);
+    }
+  }
+  
+  // 11. 진단 수정 (새로운 필드)
+  if (userInput.includes('진단')) {
+    const diagnosisMatch = userInput.match(/진단(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/) ||
+                          userInput.match(/진단[이]?\s*([가-힣a-zA-Z0-9,\s]+)/);
+    if (diagnosisMatch && diagnosisMatch[1].trim()) {
+      const newDiagnosis = diagnosisMatch[1].trim();
+      modifiedContent = findSectionAndModify('진단', newDiagnosis, true);
+    }
+  }
+  
+  // 12. 시나리오 이름/제목 변경
+  if (userInput.includes('제목') || userInput.includes('이름') || userInput.includes('타이틀')) {
+    const titleMatch = userInput.match(/(?:제목|이름|타이틀)(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/) ||
+                      userInput.match(/(?:제목|이름|타이틀)[이]?\s*([가-힣a-zA-Z0-9,\s]+)/);
+    if (titleMatch && titleMatch[1].trim()) {
+      const newTitle = titleMatch[1].trim();
       
-      // 주 증상 섹션 찾기
-      const symptomSectionIndex = modifiedContent.indexOf('## 주 증상');
-      if (symptomSectionIndex !== -1) {
-        // 주 증상 섹션의 다음 섹션 찾기
-        const nextSectionIndex = modifiedContent.indexOf('##', symptomSectionIndex + 1);
-        if (nextSectionIndex !== -1) {
-          // 주 증상 섹션 내용 추출
-          const symptomSection = modifiedContent.substring(symptomSectionIndex, nextSectionIndex);
-          // 두 번째 줄(일반적으로 메인 증상 다음 줄) 변경
-          const lines = symptomSection.split('\n');
-          if (lines.length > 2) {
-            lines[2] = `- ${newSymptom}`;
-            const updatedSection = lines.join('\n');
-            modifiedContent = modifiedContent.substring(0, symptomSectionIndex) + 
-              updatedSection + 
-              modifiedContent.substring(nextSectionIndex);
-          }
+      // 첫 번째 줄이 제목인지 확인
+      const firstLineEnd = modifiedContent.indexOf('\n');
+      if (firstLineEnd !== -1) {
+        const firstLine = modifiedContent.substring(0, firstLineEnd).trim();
+        if (firstLine.startsWith('# ')) {
+          // 첫 번째 줄이 제목인 경우 교체
+          modifiedContent = `# ${newTitle}` + modifiedContent.substring(firstLineEnd);
+        } else {
+          // 제목이 없는 경우 시작 부분에 추가
+          modifiedContent = `# ${newTitle}\n\n` + modifiedContent;
         }
       }
     }
   }
   
-  // 수정 내역 표시 제거 (사용자 요청에 따라)
-  // modifiedContent += `\n\n## 수정 내역\n- ${new Date().toLocaleString()}: "${userInput}" 요청에 따라 수정됨`;
+  // 13. 간호 계획 수정
+  if (userInput.includes('간호 계획') || userInput.includes('간호계획')) {
+    const planMatch = userInput.match(/(?:간호 계획|간호계획)(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/) ||
+                     userInput.match(/(?:간호 계획|간호계획)[이]?\s*([가-힣a-zA-Z0-9,\s]+)/);
+    if (planMatch && planMatch[1].trim()) {
+      const newPlan = planMatch[1].trim();
+      modifiedContent = findSectionAndModify('간호 계획', newPlan, true);
+    }
+  }
+  
+  // 14. 입원일/내원일 수정
+  if (userInput.includes('입원일') || userInput.includes('내원일') || userInput.includes('방문일')) {
+    const datePattern = /(\d{4})년?\s*(\d{1,2})월?\s*(\d{1,2})일?/;
+    const dateMatch = userInput.match(datePattern);
+    
+    if (dateMatch) {
+      const year = dateMatch[1];
+      const month = dateMatch[2].padStart(2, '0');
+      const day = dateMatch[3].padStart(2, '0');
+      const newDate = `${year}-${month}-${day}`;
+      
+      if (userInput.includes('입원일')) {
+        modifiedContent = updatePatientInfo('입원일', '입원일', newDate);
+      } else {
+        modifiedContent = updatePatientInfo('내원일', '내원일', newDate);
+      }
+    }
+  }
   
   return modifiedContent;
 }
@@ -130,17 +276,69 @@ function handleConversationModification(conversation, userInput, personalInfo) {
   
   let modifiedConversation = conversation;
   
-  // 나이 수정
-  if (personalInfo && personalInfo.age && userInput.includes('나이')) {
-    // 환자 소개 대화에서 나이 수정
-    const ageRegex = /(\d+)세/g;
-    const ageMatches = [...conversation.matchAll(ageRegex)];
-    if (ageMatches.length > 0) {
-      modifiedConversation = modifiedConversation.replace(ageRegex, personalInfo.age);
-    }
+  // 대화 내 특정 문구 교체 유틸리티 함수
+  function replacePhraseInConversation(oldPhrase, newPhrase) {
+    // 정규식으로 검색 시 특수문자 이스케이프
+    const escapedOldPhrase = oldPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escapedOldPhrase, 'g');
+    return modifiedConversation.replace(regex, newPhrase);
   }
   
-  // 성별 수정 (환자 호칭 변경 - 할아버지/할머니, 아저씨/아주머니 등)
+  // 대화 내에서 특정 패턴 내용만 교체하는 함수
+  function replacePatternInConversation(pattern, replacement) {
+    const regex = new RegExp(pattern, 'g');
+    return modifiedConversation.replace(regex, replacement);
+  }
+  
+  // 특정 섹션의 대화 찾아 수정하는 함수
+  function findDialogueAndModify(sectionName, responsePattern, newContent) {
+    const sectionIndex = modifiedConversation.indexOf(`## ${sectionName}`);
+    if (sectionIndex !== -1) {
+      // 해당 섹션의 다음 섹션까지의 내용
+      const nextSectionIndex = modifiedConversation.indexOf('##', sectionIndex + 1);
+      
+      if (nextSectionIndex !== -1) {
+        const sectionContent = modifiedConversation.substring(sectionIndex, nextSectionIndex);
+        
+        // 패턴과 일치하는 부분 찾기 (환자 응답 등)
+        const responseRegex = new RegExp(responsePattern, 'i');
+        const modifiedSection = sectionContent.replace(responseRegex, newContent);
+        
+        modifiedConversation = modifiedConversation.substring(0, sectionIndex) + 
+          modifiedSection + 
+          modifiedConversation.substring(nextSectionIndex);
+      } else {
+        // 마지막 섹션인 경우
+        const sectionContent = modifiedConversation.substring(sectionIndex);
+        
+        // 패턴과 일치하는 부분 찾기 (환자 응답 등)
+        const responseRegex = new RegExp(responsePattern, 'i');
+        const modifiedSection = sectionContent.replace(responseRegex, newContent);
+        
+        modifiedConversation = modifiedConversation.substring(0, sectionIndex) + modifiedSection;
+      }
+    }
+    
+    return modifiedConversation;
+  }
+  
+  // 1. 나이 수정
+  if (personalInfo && personalInfo.age && userInput.includes('나이')) {
+    // 환자 소개 대화에서 나이 수정
+    const ageRegex = /(\d+)[세살]/g;
+    modifiedConversation = modifiedConversation.replace(ageRegex, personalInfo.age);
+    
+    // "XX세" 형태의 나이 언급 수정
+    modifiedConversation = modifiedConversation.replace(/(\d+)세/g, personalInfo.age);
+    
+    // "XX살" 형태의 나이 언급 수정
+    modifiedConversation = modifiedConversation.replace(/(\d+)살/g, personalInfo.age);
+    
+    // "XX 세" 형태의 나이 언급 수정 (공백 있는 경우)
+    modifiedConversation = modifiedConversation.replace(/(\d+) 세/g, personalInfo.age);
+  }
+  
+  // 2. 성별 수정 (환자 호칭 변경 - 할아버지/할머니, 아저씨/아주머니 등)
   if (personalInfo && personalInfo.gender && userInput.includes('성별')) {
     if (personalInfo.gender === '남성') {
       // 여성 호칭을 남성 호칭으로 변경
@@ -148,47 +346,184 @@ function handleConversationModification(conversation, userInput, personalInfo) {
         .replace(/할머니/g, '할아버지')
         .replace(/아주머니/g, '아저씨')
         .replace(/여자/g, '남자')
-        .replace(/여성/g, '남성');
+        .replace(/여성/g, '남성')
+        .replace(/그녀/g, '그')
+        .replace(/여환/g, '남환')
+        .replace(/miss/gi, 'mr')
+        .replace(/mrs/gi, 'mr')
+        .replace(/ms/gi, 'mr');
     } else if (personalInfo.gender === '여성') {
       // 남성 호칭을 여성 호칭으로 변경
       modifiedConversation = modifiedConversation
         .replace(/할아버지/g, '할머니')
         .replace(/아저씨/g, '아주머니')
         .replace(/남자/g, '여자')
-        .replace(/남성/g, '여성');
+        .replace(/남성/g, '여성')
+        .replace(/그(?!\w)/g, '그녀') // '그'를 '그녀'로 변경 (단, 다른 단어의 일부인 경우는 제외)
+        .replace(/남환/g, '여환')
+        .replace(/mr/gi, 'ms');
     }
   }
   
-  // 증상 수정
+  // 3. 직업 수정
+  if (personalInfo && personalInfo.occupation && userInput.includes('직업')) {
+    // "직업은 XXX" 패턴 찾아 변경
+    const occupationRegex = /직업(?:은|는)?\s*[가-힣a-zA-Z\s]+/g;
+    modifiedConversation = modifiedConversation.replace(occupationRegex, `직업은 ${personalInfo.occupation}`);
+    
+    // "XXX(으로/로) 일하고" 패턴 찾아 변경
+    const workingAsRegex = /[가-힣a-zA-Z\s]+(?:으로|로) 일하고/g;
+    modifiedConversation = modifiedConversation.replace(workingAsRegex, `${personalInfo.occupation}(으)로 일하고`);
+  }
+  
+  // 4. 증상 수정
   if (userInput.includes('증상')) {
-    const symptomMatch = userInput.match(/(?:주\s)?증상(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/);
+    const symptomMatch = userInput.match(/(?:주\s)?증상(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/) ||
+                       userInput.match(/(?:주\s)?증상[이]?\s*([가-힣a-zA-Z0-9,\s]+)/);
     if (symptomMatch && symptomMatch[1].trim()) {
       const newSymptom = symptomMatch[1].trim();
       
       // 초기 평가 대화에서 증상 설명 부분 찾기
-      const initialAssessmentIndex = modifiedConversation.indexOf('## 초기 평가');
-      if (initialAssessmentIndex !== -1) {
-        // 환자 응답 찾기
-        const patientResponseIndex = modifiedConversation.indexOf('**환자**:', initialAssessmentIndex);
-        if (patientResponseIndex !== -1) {
-          // 환자 응답 다음 줄 찾기
-          const nextResponseIndex = modifiedConversation.indexOf('**간호사**:', patientResponseIndex);
-          if (nextResponseIndex !== -1) {
-            // 환자 응답 내용 추출
-            const patientResponse = modifiedConversation.substring(
-              patientResponseIndex + '**환자**:'.length, 
-              nextResponseIndex
-            );
-            
-            // 새 증상 포함하도록 응답 업데이트
-            const updatedResponse = `**환자**: 안녕하세요, 간호사님. ${newSymptom}`;
-            
-            modifiedConversation = modifiedConversation.substring(0, patientResponseIndex) + 
-              updatedResponse + 
-              modifiedConversation.substring(nextResponseIndex);
-          }
-        }
-      }
+      modifiedConversation = findDialogueAndModify(
+        '초기 평가', 
+        '\\*\\*환자\\*\\*:\\s*(.*?)(?=\\*\\*간호사\\*\\*|$)', 
+        `**환자**: 안녕하세요, 간호사님. ${newSymptom}`
+      );
+      
+      // 주 증상 언급 부분 찾아 변경
+      const symptomPatterns = [
+        /증상(?:으로|로|은|는)?\s*[가-힣a-zA-Z0-9,\s]+/g,
+        /불편함(?:으로|로|은|는)?\s*[가-힣a-zA-Z0-9,\s]+/g,
+        /통증(?:으로|로|은|는)?\s*[가-힣a-zA-Z0-9,\s]+/g
+      ];
+      
+      symptomPatterns.forEach(pattern => {
+        modifiedConversation = modifiedConversation.replace(pattern, `증상으로는 ${newSymptom}`);
+      });
+    }
+  }
+  
+  // 5. 투약/약물 정보 수정
+  if (userInput.includes('투약') || userInput.includes('약물') || userInput.includes('복용')) {
+    const medicationMatch = userInput.match(/(?:투약|약물|복용)(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/) ||
+                          userInput.match(/(?:투약|약물|복용)[이]?\s*([가-힣a-zA-Z0-9,\s]+)/);
+    if (medicationMatch && medicationMatch[1].trim()) {
+      const newMedication = medicationMatch[1].trim();
+      
+      // 투약 관련 대화 수정
+      const medicationPatterns = [
+        /(?:약|약물|처방약)(?:을|를|은|는)?\s*[가-힣a-zA-Z0-9,\s]+(?:복용|먹고)/g,
+        /(?:약|약물|처방약)(?:으로|로)?\s*[가-힣a-zA-Z0-9,\s]+(?:처방|투약)/g
+      ];
+      
+      medicationPatterns.forEach(pattern => {
+        modifiedConversation = modifiedConversation.replace(pattern, `약물로 ${newMedication}을(를) 복용`);
+      });
+      
+      // 약물 관리 섹션 수정
+      modifiedConversation = findDialogueAndModify(
+        '약물 관리', 
+        '\\*\\*환자\\*\\*:\\s*(.*?)(?=\\*\\*간호사\\*\\*|$)', 
+        `**환자**: 현재 ${newMedication}을(를) 복용하고 있습니다.`
+      );
+    }
+  }
+  
+  // 6. 알레르기 수정
+  if (userInput.includes('알레르기')) {
+    const allergyMatch = userInput.match(/알레르기(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/) ||
+                       userInput.match(/알레르기[가]?\s*([가-힣a-zA-Z0-9,\s]+)/);
+    if (allergyMatch && allergyMatch[1].trim()) {
+      const newAllergy = allergyMatch[1].trim();
+      
+      // 알레르기 관련 대화 수정
+      const allergyPatterns = [
+        /알레르기(?:은|는)?\s*[가-힣a-zA-Z0-9,\s]+/g,
+        /알레르기 반응(?:이|은|는)?\s*[가-힣a-zA-Z0-9,\s]+/g
+      ];
+      
+      allergyPatterns.forEach(pattern => {
+        modifiedConversation = modifiedConversation.replace(pattern, `알레르기는 ${newAllergy}`);
+      });
+    }
+  }
+  
+  // 7. 과거력 수정
+  if (userInput.includes('과거력') || userInput.includes('병력')) {
+    const historyMatch = userInput.match(/(?:과거력|병력)(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/) ||
+                        userInput.match(/(?:과거력|병력)[이]?\s*([가-힣a-zA-Z0-9,\s]+)/);
+    if (historyMatch && historyMatch[1].trim()) {
+      const newHistory = historyMatch[1].trim();
+      
+      // 과거력 관련 대화 수정
+      const historyPatterns = [
+        /과거력(?:은|는)?\s*[가-힣a-zA-Z0-9,\s]+/g,
+        /과거\s*병력(?:은|는)?\s*[가-힣a-zA-Z0-9,\s]+/g,
+        /이전에\s*[가-힣a-zA-Z0-9,\s]+\s*질환/g
+      ];
+      
+      historyPatterns.forEach(pattern => {
+        modifiedConversation = modifiedConversation.replace(pattern, `과거력은 ${newHistory}`);
+      });
+      
+      // 과거력 섹션 수정
+      modifiedConversation = findDialogueAndModify(
+        '과거력 평가', 
+        '\\*\\*환자\\*\\*:\\s*(.*?)(?=\\*\\*간호사\\*\\*|$)', 
+        `**환자**: 저는 ${newHistory} 병력이 있습니다.`
+      );
+    }
+  }
+  
+  // 8. 가족력 수정
+  if (userInput.includes('가족력')) {
+    const familyMatch = userInput.match(/가족력(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/) ||
+                      userInput.match(/가족력[이]?\s*([가-힣a-zA-Z0-9,\s]+)/);
+    if (familyMatch && familyMatch[1].trim()) {
+      const newFamily = familyMatch[1].trim();
+      
+      // 가족력 관련 대화 수정
+      const familyPatterns = [
+        /가족력(?:은|는)?\s*[가-힣a-zA-Z0-9,\s]+/g,
+        /가족\s*병력(?:은|는)?\s*[가-힣a-zA-Z0-9,\s]+/g
+      ];
+      
+      familyPatterns.forEach(pattern => {
+        modifiedConversation = modifiedConversation.replace(pattern, `가족력은 ${newFamily}`);
+      });
+      
+      // 가족력 섹션 수정
+      modifiedConversation = findDialogueAndModify(
+        '가족력', 
+        '\\*\\*환자\\*\\*:\\s*(.*?)(?=\\*\\*간호사\\*\\*|$)', 
+        `**환자**: 가족 중에는 ${newFamily}이(가) 있습니다.`
+      );
+    }
+  }
+  
+  // 9. 진단명 수정
+  if (userInput.includes('진단')) {
+    const diagnosisMatch = userInput.match(/진단(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/) ||
+                         userInput.match(/진단[이]?\s*([가-힣a-zA-Z0-9,\s]+)/);
+    if (diagnosisMatch && diagnosisMatch[1].trim()) {
+      const newDiagnosis = diagnosisMatch[1].trim();
+      
+      // 진단 관련 대화 수정
+      const diagnosisPatterns = [
+        /진단(?:은|는)?\s*[가-힣a-zA-Z0-9,\s]+/g,
+        /(?:으로|로)\s*진단(?:되었|받았)/g
+      ];
+      
+      // 진단명 변경
+      diagnosisPatterns.forEach(pattern => {
+        modifiedConversation = modifiedConversation.replace(pattern, `진단은 ${newDiagnosis}`);
+      });
+      
+      // 진단 관련 상황 맥락에 따른 수정
+      modifiedConversation = modifiedConversation.replace(
+        /저는\s*[가-힣a-zA-Z0-9,\s]+\s*(?:진단을|진단)?\s*받았습니다/g, 
+        `저는 ${newDiagnosis} 진단을 받았습니다`
+      );
     }
   }
   
@@ -1354,3 +1689,4 @@ const store = createStore({
 })
 
 export default store
+
