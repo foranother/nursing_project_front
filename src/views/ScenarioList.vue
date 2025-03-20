@@ -1,88 +1,71 @@
 <template>
-  <div class="register-page">
-    <div class="register-card">
-      <div class="register-header">
-        <h1>회원가입</h1>
-        <p class="subheading">새로운 계정을 만들어 시나리오를 이용해보세요</p>
+  <div class="scenario-list">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h1>시나리오 목록</h1>
+      <router-link v-if="isAdmin" :to="{ name: 'ScenarioCreate' }" class="btn btn-primary">
+        새 시나리오 생성
+      </router-link>
+    </div>
+    
+    <div v-if="loading" class="text-center my-5">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">로딩 중...</span>
+      </div>
+      <p class="mt-3">시나리오를 불러오는 중입니다...</p>
+    </div>
+    
+    <div v-else-if="error" class="alert alert-danger my-5">
+      {{ error }}
+    </div>
+    
+    <div v-else-if="scenarios.length === 0" class="alert alert-info my-5">
+      등록된 시나리오가 없습니다.
+      <span v-if="isAdmin">
+        <router-link :to="{ name: 'ScenarioCreate' }" class="alert-link">
+          새 시나리오를 생성
+        </router-link>해 보세요.
+      </span>
+    </div>
+    
+    <div v-else>
+      <div class="mb-4">
+        <div class="input-group">
+          <input 
+            type="text" 
+            class="form-control" 
+            placeholder="시나리오명, 질병명으로 검색" 
+            v-model="searchQuery"
+          >
+          <button class="btn btn-outline-secondary" type="button" @click="search">
+            검색
+          </button>
+        </div>
       </div>
       
-      <div class="register-body">
-        <div v-if="error" class="alert alert-danger">
-          <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ error }}
-        </div>
-        
-        <form @submit.prevent="register">
-          <div class="form-floating mb-3">
-            <input 
-              type="text" 
-              class="form-control" 
-              id="username" 
-              placeholder="사용자명"
-              v-model="form.username" 
-              required
-              :disabled="loading"
-            >
-            <label for="username">사용자명</label>
-          </div>
-          
-          <div class="form-floating mb-3">
-            <input 
-              type="email" 
-              class="form-control" 
-              id="email" 
-              placeholder="name@example.com"
-              v-model="form.email" 
-              required
-              :disabled="loading"
-            >
-            <label for="email">이메일</label>
-          </div>
-          
-          <div class="form-floating mb-3">
-            <input 
-              type="password" 
-              class="form-control" 
-              id="password" 
-              placeholder="비밀번호"
-              v-model="form.password" 
-              required
-              :disabled="loading"
-              minlength="6"
-            >
-            <label for="password">비밀번호</label>
-            <div class="form-text mt-1">
-              <i class="bi bi-info-circle me-1"></i>비밀번호는 최소 6자 이상이어야 합니다.
+      <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        <div class="col" v-for="scenario in filteredScenarios" :key="scenario.id">
+          <div class="card h-100">
+            <div class="card-header bg-primary text-white">
+              <h2 class="h5 mb-0 text-truncate" :title="scenario.title">{{ scenario.title }}</h2>
+            </div>
+            <div class="card-body">
+              <p class="card-text mb-2"><strong>주요 질병:</strong> {{ scenario.main_disease }}</p>
+              <p class="card-text mb-2">
+                <strong>작성자:</strong> {{ scenario.created_by ? scenario.created_by.username : '알 수 없음' }}
+              </p>
+              <p class="card-text mb-0">
+                <strong>생성일:</strong> {{ formatDate(scenario.created_at) }}
+              </p>
+            </div>
+            <div class="card-footer bg-white border-top-0">
+              <router-link 
+                :to="{ name: 'ScenarioDetail', params: { id: scenario.id } }" 
+                class="btn btn-outline-primary w-100"
+              >
+                상세 보기
+              </router-link>
             </div>
           </div>
-          
-          <div class="form-floating mb-4">
-            <input 
-              type="password" 
-              class="form-control" 
-              :class="{'is-invalid': passwordMismatch}"
-              id="password_confirm" 
-              placeholder="비밀번호 확인"
-              v-model="form.password_confirm" 
-              required
-              :disabled="loading"
-            >
-            <label for="password_confirm">비밀번호 확인</label>
-            <div v-if="passwordMismatch" class="invalid-feedback">
-              비밀번호가 일치하지 않습니다.
-            </div>
-          </div>
-          
-          <div class="d-grid">
-            <button type="submit" class="btn btn-primary btn-lg submit-btn" :disabled="loading || passwordMismatch">
-              <span v-if="loading" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-              <span v-else><i class="bi bi-person-plus me-2"></i></span>
-              회원가입
-            </button>
-          </div>
-        </form>
-        
-        <div class="mt-4 text-center login-link">
-          <p>이미 계정이 있으신가요? <router-link :to="{ name: 'Login' }">로그인</router-link></p>
         </div>
       </div>
       
@@ -99,191 +82,79 @@
 import { mapGetters } from 'vuex'
 
 export default {
-  name: 'Register',
+  name: 'ScenarioList',
   data() {
     return {
-      form: {
-        username: '',
-        email: '',
-        password: '',
-        password_confirm: ''
-      }
+      searchQuery: ''
     }
   },
   computed: {
-    ...mapGetters(['isLoading', 'error']),
-    passwordMismatch() {
-      return this.form.password && 
-             this.form.password_confirm && 
-             this.form.password !== this.form.password_confirm
+    ...mapGetters(['scenarios', 'isLoading', 'error', 'isAdmin']),
+    filteredScenarios() {
+      if (!this.searchQuery) {
+        return this.scenarios;
+      }
+      
+      const query = this.searchQuery.toLowerCase();
+      return this.scenarios.filter(scenario => 
+        scenario.title.toLowerCase().includes(query) || 
+        scenario.main_disease.toLowerCase().includes(query)
+      );
+    },
+    loading() {
+      return this.isLoading;
     }
   },
   methods: {
-    async register() {
-      if (this.passwordMismatch) {
-        return
-      }
+    formatDate(dateString) {
+      if (!dateString) return '알 수 없음';
       
-      try {
-        await this.$store.dispatch('register', {
-          username: this.form.username,
-          email: this.form.email,
-          password: this.form.password
-        })
-        
-        // 회원가입 성공 시 홈으로 이동
-        this.$router.push('/')
-      } catch (error) {
-        console.error('회원가입 실패:', error)
-      }
+      const date = new Date(dateString);
+      return new Intl.DateTimeFormat('ko-KR', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      }).format(date);
+    },
+    search() {
+      // 검색 실행 (현재는 클라이언트 측 필터링이므로 추가 액션 필요 없음)
+      console.log('시나리오 검색:', this.searchQuery);
     }
+  },
+  created() {
+    // 시나리오 목록을 불러옵니다
+    this.$store.dispatch('fetchScenarios');
   }
 }
 </script>
 
 <style scoped>
-.register-page {
-  max-width: 450px;
-  margin: 3rem auto;
-  position: relative;
+.scenario-list {
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
-.register-card {
-  border-radius: var(--border-radius);
-  background-color: white;
+.card {
+  transition: transform 0.3s, box-shadow 0.3s;
+  border-radius: 10px;
   overflow: hidden;
-  box-shadow: var(--shadow-lg);
-  position: relative;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
-.register-header {
-  padding: 2.5rem 2rem 1.5rem;
-  text-align: center;
-  position: relative;
-  z-index: 1;
+.card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
 }
 
-.register-header h1 {
-  font-weight: 700;
-  font-size: 2rem;
-  margin-bottom: 0.75rem;
-  color: var(--primary-dark);
-}
-
-.subheading {
-  color: #777;
-  font-size: 0.95rem;
-  margin-bottom: 0;
-}
-
-.register-body {
-  padding: 1.5rem 2rem 2.5rem;
-  position: relative;
-  z-index: 1;
-}
-
-.form-floating > label {
-  color: #777;
-}
-
-.form-control {
-  border: 1px solid #e1e5eb;
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
-  height: calc(3.5rem + 2px);
-}
-
-.form-control:focus {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 0.25rem rgba(25, 118, 210, 0.15);
-}
-
-.form-text {
-  font-size: 0.85rem;
-  color: #6c757d;
-}
-
-.submit-btn {
-  padding: 0.75rem 1rem;
-  font-weight: 600;
-  transition: all 0.3s ease;
-}
-
-.submit-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.login-link a {
-  color: var(--primary-color);
-  font-weight: 600;
-  text-decoration: none;
-  border-bottom: 1px dashed;
-  transition: all 0.2s ease;
-}
-
-.login-link a:hover {
-  color: var(--primary-dark);
-}
-
-.register-background {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  overflow: hidden;
-  z-index: 0;
-}
-
-.shape {
-  position: absolute;
-  filter: blur(40px);
-  opacity: 0.1;
-  border-radius: 50%;
-}
-
-.shape1 {
-  background-color: var(--primary-color);
-  width: 300px;
-  height: 300px;
-  top: -100px;
-  right: -80px;
-}
-
-.shape2 {
-  background-color: var(--accent-color);
-  width: 200px;
-  height: 200px;
-  bottom: -70px;
-  left: -60px;
-}
-
-.shape3 {
-  background-color: #4caf50;
-  width: 150px;
-  height: 150px;
-  top: 40%;
-  left: 60%;
-}
-
-.alert {
-  border-radius: 8px;
+.card-header {
   padding: 1rem;
-  margin-bottom: 1.5rem;
 }
 
-@media (max-width: 576px) {
-  .register-page {
-    margin: 2rem 1rem;
-  }
-  
-  .register-header {
-    padding: 2rem 1.5rem 1rem;
-  }
-  
-  .register-body {
-    padding: 1rem 1.5rem 2rem;
-  }
+.card-body {
+  padding: 1.25rem;
+}
+
+.card-footer {
+  padding: 1rem;
 }
 </style> 
