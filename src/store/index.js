@@ -15,20 +15,106 @@ function handleLocalModification(content, userInput) {
   let modifiedContent = content;
   
   // 사용자 입력에 따른 간단한 치환
+  // 나이 수정
   if (userInput.includes('나이') || userInput.includes('연령')) {
-    // 나이 수정
     const ageMatch = userInput.match(/(\d+)세/);
     if (ageMatch && ageMatch[1]) {
-      modifiedContent = modifiedContent.replace(/(\d+)세/, `${ageMatch[1]}세`);
+      modifiedContent = modifiedContent.replace(/나이:\s*(\d+)세/, `나이: ${ageMatch[1]}세`);
     }
   }
   
+  // 성별 수정
   if (userInput.includes('성별') || userInput.includes('남자') || userInput.includes('여자')) {
-    // 성별 수정
     if (userInput.includes('남자') || userInput.includes('남성')) {
-      modifiedContent = modifiedContent.replace(/성별: 여(성|자)/g, '성별: 남성');
+      modifiedContent = modifiedContent.replace(/성별:\s*여(성|자)/g, '성별: 남성');
     } else if (userInput.includes('여자') || userInput.includes('여성')) {
-      modifiedContent = modifiedContent.replace(/성별: 남(성|자)/g, '성별: 여성');
+      modifiedContent = modifiedContent.replace(/성별:\s*남(성|자)/g, '성별: 여성');
+    }
+  }
+  
+  // 직업 수정
+  if (userInput.includes('직업')) {
+    const jobMatch = userInput.match(/직업(?:을|를|은|는)?\s*([가-힣a-zA-Z\s]+)(?:으로|로|으로\s변경|로\s변경)?/);
+    if (jobMatch && jobMatch[1].trim()) {
+      const newJob = jobMatch[1].trim();
+      if (modifiedContent.includes('직업:')) {
+        modifiedContent = modifiedContent.replace(/직업:\s*[^\n]+/, `직업: ${newJob}`);
+      } else {
+        // 만약 직업 항목이 없다면 추가 (환자 정보 섹션에 삽입)
+        const patientInfoIndex = modifiedContent.indexOf('## 환자 정보');
+        if (patientInfoIndex !== -1) {
+          // 환자 정보 마지막 줄 찾기
+          const nextSectionIndex = modifiedContent.indexOf('##', patientInfoIndex + 1);
+          const insertPosition = nextSectionIndex !== -1 ? 
+            nextSectionIndex : 
+            patientInfoIndex + modifiedContent.substring(patientInfoIndex).indexOf('\n\n');
+          
+          modifiedContent = modifiedContent.substring(0, insertPosition) + 
+            `\n- 직업: ${newJob}` + 
+            modifiedContent.substring(insertPosition);
+        }
+      }
+    }
+  }
+  
+  // 과거력 수정
+  if (userInput.includes('과거력') || userInput.includes('병력')) {
+    const historyMatch = userInput.match(/(?:과거력|병력)(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/);
+    if (historyMatch && historyMatch[1].trim()) {
+      const newHistory = historyMatch[1].trim();
+      if (modifiedContent.includes('과거력:')) {
+        modifiedContent = modifiedContent.replace(/과거력:\s*[^\n]+/, `과거력: ${newHistory}`);
+      }
+    }
+  }
+  
+  // 가족력 수정
+  if (userInput.includes('가족력')) {
+    const familyMatch = userInput.match(/가족력(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/);
+    if (familyMatch && familyMatch[1].trim()) {
+      const newFamily = familyMatch[1].trim();
+      if (modifiedContent.includes('가족력:')) {
+        modifiedContent = modifiedContent.replace(/가족력:\s*[^\n]+/, `가족력: ${newFamily}`);
+      }
+    }
+  }
+  
+  // 알레르기 수정
+  if (userInput.includes('알레르기')) {
+    const allergyMatch = userInput.match(/알레르기(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/);
+    if (allergyMatch && allergyMatch[1].trim()) {
+      const newAllergy = allergyMatch[1].trim();
+      if (modifiedContent.includes('알레르기:')) {
+        modifiedContent = modifiedContent.replace(/알레르기:\s*[^\n]+/, `알레르기: ${newAllergy}`);
+      }
+    }
+  }
+  
+  // 주 증상 수정
+  if (userInput.includes('증상') || userInput.includes('주 증상')) {
+    const symptomMatch = userInput.match(/(?:주\s)?증상(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/);
+    if (symptomMatch && symptomMatch[1].trim()) {
+      const newSymptom = symptomMatch[1].trim();
+      
+      // 주 증상 섹션 찾기
+      const symptomSectionIndex = modifiedContent.indexOf('## 주 증상');
+      if (symptomSectionIndex !== -1) {
+        // 주 증상 섹션의 다음 섹션 찾기
+        const nextSectionIndex = modifiedContent.indexOf('##', symptomSectionIndex + 1);
+        if (nextSectionIndex !== -1) {
+          // 주 증상 섹션 내용 추출
+          const symptomSection = modifiedContent.substring(symptomSectionIndex, nextSectionIndex);
+          // 두 번째 줄(일반적으로 메인 증상 다음 줄) 변경
+          const lines = symptomSection.split('\n');
+          if (lines.length > 2) {
+            lines[2] = `- ${newSymptom}`;
+            const updatedSection = lines.join('\n');
+            modifiedContent = modifiedContent.substring(0, symptomSectionIndex) + 
+              updatedSection + 
+              modifiedContent.substring(nextSectionIndex);
+          }
+        }
+      }
     }
   }
   
@@ -36,6 +122,77 @@ function handleLocalModification(content, userInput) {
   // modifiedContent += `\n\n## 수정 내역\n- ${new Date().toLocaleString()}: "${userInput}" 요청에 따라 수정됨`;
   
   return modifiedContent;
+}
+
+// 환자와의 대화 내용 수정 함수
+function handleConversationModification(conversation, userInput, personalInfo) {
+  if (!conversation) return '';
+  
+  let modifiedConversation = conversation;
+  
+  // 나이 수정
+  if (personalInfo && personalInfo.age && userInput.includes('나이')) {
+    // 환자 소개 대화에서 나이 수정
+    const ageRegex = /(\d+)세/g;
+    const ageMatches = [...conversation.matchAll(ageRegex)];
+    if (ageMatches.length > 0) {
+      modifiedConversation = modifiedConversation.replace(ageRegex, personalInfo.age);
+    }
+  }
+  
+  // 성별 수정 (환자 호칭 변경 - 할아버지/할머니, 아저씨/아주머니 등)
+  if (personalInfo && personalInfo.gender && userInput.includes('성별')) {
+    if (personalInfo.gender === '남성') {
+      // 여성 호칭을 남성 호칭으로 변경
+      modifiedConversation = modifiedConversation
+        .replace(/할머니/g, '할아버지')
+        .replace(/아주머니/g, '아저씨')
+        .replace(/여자/g, '남자')
+        .replace(/여성/g, '남성');
+    } else if (personalInfo.gender === '여성') {
+      // 남성 호칭을 여성 호칭으로 변경
+      modifiedConversation = modifiedConversation
+        .replace(/할아버지/g, '할머니')
+        .replace(/아저씨/g, '아주머니')
+        .replace(/남자/g, '여자')
+        .replace(/남성/g, '여성');
+    }
+  }
+  
+  // 증상 수정
+  if (userInput.includes('증상')) {
+    const symptomMatch = userInput.match(/(?:주\s)?증상(?:을|를|은|는)?\s*([가-힣a-zA-Z0-9,\s]+)(?:으로|로|으로\s변경|로\s변경)?/);
+    if (symptomMatch && symptomMatch[1].trim()) {
+      const newSymptom = symptomMatch[1].trim();
+      
+      // 초기 평가 대화에서 증상 설명 부분 찾기
+      const initialAssessmentIndex = modifiedConversation.indexOf('## 초기 평가');
+      if (initialAssessmentIndex !== -1) {
+        // 환자 응답 찾기
+        const patientResponseIndex = modifiedConversation.indexOf('**환자**:', initialAssessmentIndex);
+        if (patientResponseIndex !== -1) {
+          // 환자 응답 다음 줄 찾기
+          const nextResponseIndex = modifiedConversation.indexOf('**간호사**:', patientResponseIndex);
+          if (nextResponseIndex !== -1) {
+            // 환자 응답 내용 추출
+            const patientResponse = modifiedConversation.substring(
+              patientResponseIndex + '**환자**:'.length, 
+              nextResponseIndex
+            );
+            
+            // 새 증상 포함하도록 응답 업데이트
+            const updatedResponse = `**환자**: 안녕하세요, 간호사님. ${newSymptom}`;
+            
+            modifiedConversation = modifiedConversation.substring(0, patientResponseIndex) + 
+              updatedResponse + 
+              modifiedConversation.substring(nextResponseIndex);
+          }
+        }
+      }
+    }
+  }
+  
+  return modifiedConversation;
 }
 
 // 시나리오 내용에서 환자 정보 추출 함수
@@ -722,12 +879,18 @@ const store = createStore({
                 try {
                   console.log('GPT로 로컬 수정 시도...');
                   
-                  // handleLocalModification 함수를 직접 호출
+                  // handleLocalModification 함수를 직접 호출하여 시나리오 내용 수정
                   const updatedContent = handleLocalModification(existingScenario.content, userInput);
-                  const updatedConversation = handleLocalModification(existingScenario.patient_conversation, userInput);
                   
                   // 시나리오 내용에서 환자 정보 추출
                   const { patientInfo, additionalInfo } = extractPatientInfoFromContent(updatedContent);
+                  
+                  // 환자와의 대화 내용도 같은 수정 적용 (개선된 대화 수정 함수 사용)
+                  const updatedConversation = handleConversationModification(
+                    existingScenario.patient_conversation, 
+                    userInput,
+                    patientInfo
+                  );
                   
                   // 수정된 시나리오 업데이트
                   const modifiedScenario = {
@@ -775,9 +938,14 @@ const store = createStore({
         // 백엔드 API를 통해 시나리오 수정
         console.log('백엔드 API를 통한 시나리오 수정 시도...');
         try {
-          const response = await axios.post(`/api/modifications/modify/${scenarioId}/`, {
-            user_input: userInput,
-            created_by: currentUser.id
+          // 시나리오 내용에서 환자 정보 추출
+          const { patientInfo, additionalInfo } = extractPatientInfoFromContent(updatedContent);
+          
+          // 백엔드 API에 수정된 내용 전송
+          const response = await axios.patch(`/api/scenarios/${scenarioId}/`, {
+            content: updatedContent,
+            personal_info: patientInfo,
+            additional_info: additionalInfo
           }, {
             withCredentials: true,
             headers: {
@@ -785,7 +953,7 @@ const store = createStore({
             }
           });
           
-          console.log('백엔드 시나리오 수정 성공:', response.data);
+          console.log('백엔드 시나리오 내용 수정 성공:', response.data);
           
           // 수정된 시나리오 데이터
           const modifiedScenario = response.data;
@@ -795,7 +963,7 @@ const store = createStore({
           commit('SET_LOADING', false);
           return modifiedScenario;
         } catch (apiError) {
-          console.error('백엔드 시나리오 수정 API 호출 실패:', apiError);
+          console.error('백엔드 시나리오 내용 수정 API 호출 실패:', apiError);
           
           // 백엔드 API 실패 시 오류 전달
           if (apiError.response) {
